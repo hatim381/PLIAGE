@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Pétanque — 4 poules de 3 (mobile responsive)</title>
+<style>
+  :root{
+    --blue:#4F81BD; --green:#9BBB59; --red:#C0504D; --purple:#8064A2;
+    --gray-025:#fdfdfd; --gray-050:#fcfcfc; --gray-100:#f7f7f7; --gray-200:#ececec; --gray-300:#e0e0e0;
+    --white:#fff; --text:#111;
+    --brand:#016eea; --ok:#2e7d32; --warn:#c62828;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; padding:16px; font-family:system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,Arial;
+    background:var(--gray-025); color:var(--text); line-height:1.35;
+  }
+  h1{margin:0 0 6px; font-size: clamp(18px, 3.5vw, 24px); font-weight:800}
+  .sub{color:#555; margin:0 0 72px; font-size: clamp(12px, 2.8vw, 14px)}
+
+  /* Toolbar sticky (mobile friendly) */
+  .toolbar{
+    position: sticky; top: 8px; z-index: 20;
+    display:flex; gap:8px; align-items:center; justify-content:space-between;
+    background:transparent; margin-bottom:14px;
+  }
+  .toolbar-inner{
+    width:100%; display:flex; gap:8px; align-items:center; background:var(--white);
+    border:1px solid var(--gray-300); border-radius:12px; padding:8px; box-shadow:0 3px 12px rgba(0,0,0,.06);
+  }
+  .btn{
+    border:1px solid var(--gray-300); background:var(--white); padding:10px 12px; border-radius:10px;
+    cursor:pointer; font-weight:700; font-size:14px;
+    box-shadow:0 2px 6px rgba(0,0,0,.05); flex:1; min-width:0;
+    touch-action:manipulation;
+  }
+  .btn.primary{background:var(--brand); color:#fff; border-color:transparent}
+  .btn:active{transform:translateY(1px)}
+  .status{margin-left:auto; font-size:12px; color:#666; white-space:nowrap}
+  .status.ok{color:var(--ok)} .status.warn{color:var(--warn)}
+
+  /* Grille responsive */
+  .grid{
+    display:grid; gap:16px;
+    grid-template-columns: repeat(2, minmax(320px, 1fr));
+  }
+  @media (max-width: 900px){
+    .grid{ grid-template-columns: 1fr; }
+    .btn{ font-size:15px; padding:12px 14px }
+  }
+
+  .card{
+    background:var(--white); border:1px solid var(--gray-300); border-radius:14px;
+    box-shadow:0 3px 12px rgba(0,0,0,.06); overflow:hidden;
+  }
+  .head{
+    padding:12px 14px; color:#fff; font-weight:800; letter-spacing:.3px;
+    display:flex; align-items:center; justify-content:space-between;
+    font-size: clamp(14px, 3.2vw, 16px);
+  }
+  .legend{font-size: clamp(11px, 2.6vw, 12px); opacity:.95}
+
+  .teams{
+    display:grid; gap:10px; padding:12px 12px; background:var(--gray-100);
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .teams label{font-size:12px; color:#444; margin-bottom:4px; display:block}
+  .teams input{
+    width:100%; padding:10px 12px; border:1px solid var(--gray-300); border-radius:10px; background:#fff;
+    font-size: clamp(14px, 3.5vw, 15px);
+  }
+  @media (max-width:700px){
+    .teams{ grid-template-columns: 1fr; }
+  }
+
+  .table-wrap{ width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; background:var(--white)}
+  table{ width:100%; border-collapse:collapse; table-layout:fixed; font-size: clamp(13px, 3.3vw, 14px) }
+  thead th{
+    background:var(--gray-200); text-align:center; padding:10px 6px; border-bottom:1px solid var(--gray-300);
+    position: sticky; top:0; z-index:1;
+  }
+  tbody td{ padding:9px 6px; border-bottom:1px solid var(--gray-300); text-align:center }
+  .left{text-align:left; padding-left:12px}
+  .score{ display:flex; align-items:center; justify-content:center; gap:8px }
+  .score input{
+    width:64px; padding:10px 10px; border:1px solid var(--gray-300); border-radius:10px; text-align:center;
+    font-size: clamp(15px, 4vw, 16px);
+  }
+  @media (max-width:420px){
+    .score input{ width:56px }
+  }
+  .row-final{ background:#eaf5e4; font-weight:800 }
+  .row-elim{ background:#fde7e7; font-weight:800 }
+  .badge{ padding:2px 8px; border-radius:999px; font-size:11px; font-weight:800; display:inline-block; color:#fff }
+  .bA{background:var(--blue)} .bB{background:var(--green)} .bC{background:var(--red)} .bD{background:var(--purple)}
+  .qualif{ background:#2e7d32 } .elim{ background:#c62828 }
+  .muted{ color:#666 }
+</style>
+</head>
+<body>
+  <h1>Pétanque — 4 poules de 3 (2 qualifiés/poule)</h1>
+  <p class="sub">M1: Éq1 vs Éq2 (Éq3 exempt) • M2: Exempt vs Gagnant M1 → <b>Qualifié #1</b> • M3 <i>(barrage)</i>: Perdant M1 vs Perdant M2 → <b>Qualifié #2</b> / <b>Éliminé</b>.</p>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-inner">
+      <button id="btn-random" class="btn primary">🎲 Tirage aléatoire</button>
+      <button id="btn-save" class="btn">💾 Sauvegarder</button>
+      <span id="save-status" class="status">—</span>
+    </div>
+  </div>
+
+  <!-- Poules -->
+  <div class="grid" id="grid"></div>
+
+<script>
+/* ========== Données et couleurs ========== */
+const initialPoules = {
+  A:["Équipe 1","Équipe 2","Équipe 3"],
+  B:["Équipe 4","Équipe 5","Équipe 6"],
+  C:["Équipe 7","Équipe 8","Équipe 9"],
+  D:["Équipe 10","Équipe 11","Équipe 12"]
+};
+const headColors={A:"var(--blue)",B:"var(--green)",C:"var(--red)",D:"var(--purple)"};
+const grid=document.getElementById('grid');
+const saveStatus=document.getElementById('save-status');
+function setStatus(txt, cls=""){ saveStatus.textContent=txt; saveStatus.className="status "+cls; }
+
+/* ========== Construction UI ========== */
+Object.entries(initialPoules).forEach(([L,teams])=>{
+  const card=document.createElement('section');
+  card.className='card';
+  card.innerHTML=`
+    <div class="head" style="background:${headColors[L]}">
+      <div>Poule ${L}</div>
+      <div class="legend">Qualifiés : Gagnant M2 • Gagnant M3</div>
+    </div>
+    <div class="teams">
+      <div><label for="${L}_t1">Équipe 1</label><input id="${L}_t1" type="text" value="${teams[0]}" autocomplete="off"></div>
+      <div><label for="${L}_t2">Équipe 2</label><input id="${L}_t2" type="text" value="${teams[1]}" autocomplete="off"></div>
+      <div><label for="${L}_t3">Équipe 3 (Exempt M1)</label><input id="${L}_t3" type="text" value="${teams[2]}" autocomplete="off"></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:84px;">Match</th>
+            <th class="left">Équipe</th>
+            <th class="left">Équipe</th>
+            <th style="width:170px;">Score</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge b${L}">M1</span></td>
+            <td class="left"><span id="${L}_m1_l">—</span></td>
+            <td class="left"><span id="${L}_m1_r">—</span></td>
+            <td>
+              <div class="score">
+                <input id="${L}_m1_sL" type="number" min="0" max="13" inputmode="numeric">
+                <span>à</span>
+                <input id="${L}_m1_sR" type="number" min="0" max="13" inputmode="numeric">
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="badge b${L}">M2</span></td>
+            <td class="left"><span id="${L}_m2_l" class="muted">Exempt : (Équipe 3)</span></td>
+            <td class="left"><span id="${L}_m2_r" class="muted">Gagnant M1</span></td>
+            <td>
+              <div class="score">
+                <input id="${L}_m2_sL" type="number" min="0" max="13" inputmode="numeric">
+                <span>à</span>
+                <input id="${L}_m2_sR" type="number" min="0" max="13" inputmode="numeric">
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="badge b${L}">M3</span></td>
+            <td class="left"><span id="${L}_m3_l" class="muted">Perdant M1</span></td>
+            <td class="left"><span id="${L}_m3_r" class="muted">Perdant M2</span></td>
+            <td>
+              <div class="score">
+                <input id="${L}_m3_sL" type="number" min="0" max="13" inputmode="numeric">
+                <span>à</span>
+                <input id="${L}_m3_sR" type="number" min="0" max="13" inputmode="numeric">
+              </div>
+            </td>
+          </tr>
+          <tr class="row-final">
+            <td><span class="badge qualif">Qualifiés</span></td>
+            <td class="left"><b id="${L}_q1">Gagnant M2</b></td>
+            <td class="left"><b id="${L}_q2">Gagnant M3</b></td>
+            <td></td>
+          </tr>
+          <tr class="row-elim">
+            <td><span class="badge elim">Éliminé</span></td>
+            <td class="left"><b id="${L}_elim">Perdant M3</b></td>
+            <td></td><td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+  grid.appendChild(card);
+});
+
+/* ========== Helpers ========== */
+function txt(id, val){const el=document.getElementById(id); if(el) el.textContent=val;}
+function getVal(id){const el=document.getElementById(id); return el&&el.value.trim()?el.value.trim():null;}
+function getNum(id){const el=document.getElementById(id); if(!el) return null; const v=el.value; return v===""||isNaN(+v)?null:+v;}
+
+/* ========== Maj logique d’une poule ========== */
+function updatePoule(L){
+  const t1=getVal(`${L}_t1`)||"Équipe 1";
+  const t2=getVal(`${L}_t2`)||"Équipe 2";
+  const t3=getVal(`${L}_t3`)||"Équipe 3";
+
+  // M1: t1 vs t2
+  txt(`${L}_m1_l`, t1); txt(`${L}_m1_r`, t2);
+  const m1L=getNum(`${L}_m1_sL`), m1R=getNum(`${L}_m1_sR`);
+  let winM1=null, loseM1=null;
+  if(m1L!=null && m1R!=null && m1L!==m1R){
+    winM1 = m1L>m1R ? t1 : t2;
+    loseM1 = m1L>m1R ? t2 : t1;
+  }
+
+  // M2: Exempt t3 vs Gagnant M1
+  txt(`${L}_m2_l`, `Exempt : ${t3}`);
+  txt(`${L}_m2_r`, winM1? winM1 : "Gagnant M1");
+  const m2L=getNum(`${L}_m2_sL`), m2R=getNum(`${L}_m2_sR`);
+  let winM2=null, loseM2=null;
+  if(winM1 && m2L!=null && m2R!=null && m2L!==m2R){
+    winM2 = m2L>m2R ? t3 : winM1;
+    loseM2 = m2L>m2R ? winM1 : t3;
+  }
+
+  // M3 (barrage): Perdant M1 vs Perdant M2
+  txt(`${L}_m3_l`, loseM1? loseM1 : "Perdant M1");
+  txt(`${L}_m3_r`, loseM2? loseM2 : "Perdant M2");
+  const m3L=getNum(`${L}_m3_sL`), m3R=getNum(`${L}_m3_sR`);
+  let winM3=null, loseM3=null;
+  if(loseM1 && loseM2 && m3L!=null && m3R!=null && m3L!==m3R){
+    winM3 = m3L>m3R ? loseM1 : loseM2;
+    loseM3 = m3L>m3R ? loseM2 : loseM1;
+  }
+
+  // Sorties
+  txt(`${L}_q1`, winM2? winM2 : "Gagnant M2");
+  txt(`${L}_q2`, winM3? winM3 : "Gagnant M3");
+  txt(`${L}_elim`, loseM3? loseM3 : "Perdant M3");
+}
+
+/* ========== Tirage aléatoire ========== */
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
+}
+function collectAllTeamNames(){
+  const ids=['A_t1','A_t2','A_t3','B_t1','B_t2','B_t3','C_t1','C_t2','C_t3','D_t1','D_t2','D_t3'];
+  return ids.map((id, idx)=> getVal(id) || `Équipe ${idx+1}`);
+}
+function applyTeamsRandom(){
+  const names = shuffle(collectAllTeamNames().slice());
+  const targets=['A_t1','A_t2','A_t3','B_t1','B_t2','B_t3','C_t1','C_t2','C_t3','D_t1','D_t2','D_t3'];
+  targets.forEach((id,i)=>{ const el=document.getElementById(id); el.value=names[i]; });
+  // reset scores
+  ['A','B','C','D'].forEach(L=>{
+    [1,2,3].forEach(m=>['L','R'].forEach(s=>{
+      const el=document.getElementById(`${L}_m${m}_s${s}`); el.value='';
+    }));
+    updatePoule(L);
+  });
+  setStatus('Tirage effectué ✔','ok'); saveState();
+}
+
+/* ========== Sauvegarde locale (auto) ========== */
+const STORAGE_KEY='petanque_poules_v2';
+function getState(){
+  const state={};
+  ['A','B','C','D'].forEach(L=>{
+    state[L]={teams:{},scores:{}};
+    ['t1','t2','t3'].forEach(s=> state[L].teams[s]=getVal(`${L}_${s}`)||'' );
+    [1,2,3].forEach(m=>{
+      state[L].scores[`m${m}L`]=document.getElementById(`${L}_m${m}_sL`).value||'';
+      state[L].scores[`m${m}R`]=document.getElementById(`${L}_m${m}_sR`).value||'';
+    });
+  });
+  return state;
+}
+function setState(st){
+  if(!st) return;
+  ['A','B','C','D'].forEach(L=>{
+    const s=st[L]; if(!s) return;
+    ['t1','t2','t3'].forEach(k=>{
+      const el=document.getElementById(`${L}_${k}`); if(el && s.teams && k in s.teams) el.value=s.teams[k]||'';
+    });
+    [1,2,3].forEach(m=>{
+      const elL=document.getElementById(`${L}_m${m}_sL`);
+      const elR=document.getElementById(`${L}_m${m}_sR`);
+      if(s.scores){ if(elL) elL.value=s.scores[`m${m}L`]||''; if(elR) elR.value=s.scores[`m${m}R`]||''; }
+    });
+    updatePoule(L);
+  });
+}
+function saveState(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(getState())); setStatus('Sauvegardé ✔','ok'); }
+  catch(e){ console.error(e); setStatus('Sauvegarde impossible','warn'); }
+}
+function loadState(){
+  try{
+    const raw=localStorage.getItem(STORAGE_KEY);
+    if(!raw){ setStatus('Aucune sauvegarde'); }
+    else { setState(JSON.parse(raw)); setStatus('Sauvegarde chargée ✔','ok'); }
+  }catch(e){ console.error(e); setStatus('Chargement impossible','warn'); }
+}
+
+/* ========== Écouteurs / init ========== */
+function wire(L){
+  ['t1','t2','t3'].forEach(s=>{
+    document.getElementById(`${L}_${s}`).addEventListener('input',()=>{ updatePoule(L); saveState(); });
+  });
+  [1,2,3].forEach(m=>{
+    ['L','R'].forEach(side=>{
+      document.getElementById(`${L}_m${m}_s${side}`).addEventListener('input',()=>{ updatePoule(L); saveState(); });
+    });
+  });
+  updatePoule(L);
+}
+['A','B','C','D'].forEach(wire);
+
+document.getElementById('btn-random').addEventListener('click', applyTeamsRandom);
+document.getElementById('btn-save').addEventListener('click', saveState);
+
+loadState();
+</script>
+</body>
+</html>
