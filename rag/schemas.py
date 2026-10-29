@@ -31,6 +31,7 @@ class IndicatorDef:
     unit: str = ""
     description: str = ""
     optional: bool = False  # masqué du tableau s'il n'est pas trouvé
+    queries: tuple = ()  # recherches ciblées si l'indicateur manque après la 1re passe
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,10 @@
 3. collecte, filtrage fichier, déduplication  — Python
 4. relance des familles sans passage (≤ 3)    — Premium
 5. extraction des candidats                   — LLM sans outils, JSON
-6. ancrage, consolidation, validation         — Python
+6. ancrage, consolidation                     — Python
+7. indicateurs encore manquants : recherches dédiées par indicateur,
+   puis nouvelle extraction sur ces seuls indicateurs
+8. validation                                 — Python
 """
 
 import logging
@@ -20,8 +23,10 @@ from pliage.parser import (
 from rag.catalog import FAMILIES_BY_KEY, indicators_for
 from rag.consolidator import consolidate
 from rag.extractor import build_extraction_messages, parse_extraction_response, to_candidates
-from rag.retrieval import MAX_ATTEMPTS, EvidenceStore, build_queries, build_retrieval_prompt
-from rag.schemas import CONFIRMED, NOT_FOUND, ExtractionReport
+from rag.retrieval import (
+    MAX_ATTEMPTS, EvidenceStore, build_indicator_queries, build_queries, build_retrieval_prompt,
+)
+from rag.schemas import CONFIRMED, NEEDS_VERIFICATION, NOT_FOUND, ExtractionReport
 from rag.validator import validate
 
 log = logging.getLogger("rag.pipeline")
@@ -34,9 +39,42 @@ def _family_labels(keys):
     return ", ".join(FAMILIES_BY_KEY[k].label for k in keys)
 
 
+def _search_turn(client, conv, plan, queries, attempt, store, report):
+    """Un tour Premium : exécute les requêtes et ajoute les passages au store."""
+    report.queries.extend(queries)
+    turn = client.run_openwebui_turn(
+        build_retrieval_prompt(queries, plan), conv, PREMIUM_ID, PREMIUM_NAME,
+        timeout=RETRIEVAL_TIMEOUT,
+    )
+    calls = [c for c in extract_tool_calls(turn.content) if is_knowledge_tool(c.name)]
+    results = extract_knowledge_results(turn.message)
+    added = store.add_results(results, queries)
+    log.info(
+        "attempt=%d : %d appels outil, %d passages bruts, %d nouveaux",
+        attempt, len(calls), len(results), added,
+    )
+    report.debug.setdefault("retrieval", []).append({
+        "attempt": attempt,
+        "chat_id": turn.chat_id,
+        "task_ids": turn.task_ids,
+        "assistant_message_id": turn.assistant_message_id,
+        "message_match": turn.match_method,
+        "model": turn.model,
+        "elapsed_s": round(turn.elapsed, 1),
+        "planned_queries": [q.text for q in queries],
+        "executed_queries": [c.query for c in calls],
+        "raw_chunks": len(results),
+        "new_chunks": added,
+    })
+    if not calls:
+        report.warnings.append(
+            f"Tentative {attempt} : le Premium n'a appelé aucun outil de recherche documentaire."
+        )
+    return added
+
+
 def _retrieve(client, conv, plan, report, store, on_step):
     pending = list(plan.families)
-    attempts = []
     for attempt in range(1, MAX_ATTEMPTS + 1):
         queries = build_queries(plan, pending, attempt)
         if not queries:
@@ -45,42 +83,40 @@ def _retrieve(client, conv, plan, report, store, on_step):
             on_step("📚 Recherches ciblées envoyées au Premium : " + _family_labels(pending) + "…")
         else:
             on_step(f"🔁 Reformulation (tentative {attempt}) : {_family_labels(pending)}…")
-        report.queries.extend(queries)
-
-        turn = client.run_openwebui_turn(
-            build_retrieval_prompt(queries, plan), conv, PREMIUM_ID, PREMIUM_NAME,
-            timeout=RETRIEVAL_TIMEOUT,
-        )
-        calls = [c for c in extract_tool_calls(turn.content) if is_knowledge_tool(c.name)]
-        results = extract_knowledge_results(turn.message)
-        added = store.add_results(results, queries)
-        log.info(
-            "attempt=%d : %d appels outil, %d passages bruts, %d nouveaux",
-            attempt, len(calls), len(results), added,
-        )
-
-        attempts.append({
-            "attempt": attempt,
-            "chat_id": turn.chat_id,
-            "task_ids": turn.task_ids,
-            "assistant_message_id": turn.assistant_message_id,
-            "message_match": turn.match_method,
-            "model": turn.model,
-            "elapsed_s": round(turn.elapsed, 1),
-            "planned_queries": [q.text for q in queries],
-            "executed_queries": [c.query for c in calls],
-            "raw_chunks": len(results),
-            "new_chunks": added,
-        })
-        if not calls:
-            report.warnings.append(
-                f"Tentative {attempt} : le Premium n'a appelé aucun outil de recherche documentaire."
-            )
+        _search_turn(client, conv, plan, queries, attempt, store, report)
         pending = store.missing_families(pending)
         if not pending:
             break
-    report.debug["retrieval"] = attempts
     return pending
+
+
+def _targeted_pass(client, conv, plan, report, store, indicators, on_step):
+    """Indicateurs requis non confirmés : recherches dédiées, puis nouvelle extraction.
+
+    Les gros passages contiennent les mots-clés de toutes les familles : une
+    famille paraît couverte alors que la page utile n'a jamais été ramenée.
+    """
+    missing = [
+        ind for ind in indicators
+        if not ind.optional and ind.queries
+        and report.results[ind.key].status in (NOT_FOUND, NEEDS_VERIFICATION)
+    ]
+    queries = build_indicator_queries(plan, missing, MAX_ATTEMPTS + 1)
+    if not queries:
+        return
+    on_step("🎯 Recherches dédiées : " + ", ".join(ind.label for ind in missing) + "…")
+    before = len(store.items)
+    _search_turn(client, conv, plan, queries, MAX_ATTEMPTS + 1, store, report)
+    if not store.items:
+        return
+    # Nouveaux passages en tête : le plafond de preuves ne doit pas les couper.
+    # Même sans nouveau passage, une extraction limitée à ces indicateurs
+    # retrouve des valeurs noyées dans une première extraction trop large.
+    evidence = store.items[before:] + store.items[:before]
+    on_step(f"🧠 Extraction dédiée ({len(store.items) - before} passage(s) supplémentaire(s))…")
+    raw = _extract(client, plan, evidence, missing, report)
+    report.candidates.extend(to_candidates(raw, store.items))
+    report.results = consolidate(report.candidates, indicators)
 
 
 def _extract(client, plan, evidence, indicators, report):
@@ -143,9 +179,12 @@ def run_multi_rag(client, conv, plan, on_step=lambda label: None):
         report.candidates = to_candidates(raw, store.items)
     else:
         report.warnings.append("Aucun passage documentaire exploitable : extraction non lancée.")
+    report.results = consolidate(report.candidates, indicators)
+
+    _targeted_pass(client, conv, plan, report, store, indicators, on_step)
+    report.evidence = store.items
 
     on_step("🛡️ Validation des valeurs…")
-    report.results = consolidate(report.candidates, indicators)
     report.checks = validate(report.results)
     report.sources = _used_sources(report)
 

@@ -97,15 +97,38 @@ FAMILIES = (
 FAMILIES_BY_KEY = {family.key: family for family in FAMILIES}
 
 
-def _ind(key, label, family, kind, unit="", description="", optional=False):
-    return IndicatorDef(key, label, family, kind, unit, description, optional)
+def _ind(key, label, family, kind, unit="", description="", optional=False, queries=()):
+    return IndicatorDef(key, label, family, kind, unit, description, optional, queries)
+
+
+# Requêtes de 2e passe : formulations courtes, au vocabulaire des fiches ACI,
+# pour ramener les pages qu'une requête multi-thèmes ne remonte pas.
+Q_ASSOCIES = ("professionnels associés signataires médecins généralistes professionnels paramédicaux pharmacien {target}",)
+Q_PATIENTELE = ("Nombre de patients AME Taux de patients AME Nombre de patients C2S {target}",)
+Q_REMUNERATION = (
+    "Synthèse de la rémunération Avance sur exercice Solde sur exercice Total de la rémunération {target}",
+    "votre rémunération au titre de l'exercice s'élève à avance au titre de l'exercice {target}",
+)
+Q_HORAIRES = ("Horaires d'ouverture amplitude horaire 8h 20h samedi matin {target}",)
+Q_PROTOCOLES = (
+    "2ème Axe Travail en équipe et coordination protocoles pluri-professionnels {target}",
+    "Élaboration de protocoles pluri-professionnels nombre de protocoles {target}",
+)
+Q_IPA = ("Intégration d'un infirmier en pratique avancée IPA dans l'équipe {target}",)
+Q_STAGES = (
+    "Formation des jeunes professionnels de santé au moins 2 stages dans l'année {target}",
+    "accueil de stagiaires maître de stage {target}",
+)
 
 
 INDICATORS = (
     # A — Professionnels
-    _ind("associes_total", "Professionnels associés signataires (total)", "professionnels", "count", "professionnels"),
-    _ind("associes_medecins_generalistes", "Médecins généralistes associés", "professionnels", "count", "professionnels"),
-    _ind("associes_paramedicaux", "Paramédicaux associés", "professionnels", "count", "professionnels"),
+    _ind("associes_total", "Professionnels associés signataires (total)", "professionnels", "count", "professionnels",
+         queries=Q_ASSOCIES),
+    _ind("associes_medecins_generalistes", "Médecins généralistes associés", "professionnels", "count", "professionnels",
+         queries=Q_ASSOCIES),
+    _ind("associes_paramedicaux", "Paramédicaux associés", "professionnels", "count", "professionnels",
+         queries=Q_ASSOCIES),
     _ind("associes_medecins_specialistes", "Médecins spécialistes associés", "professionnels", "count", "professionnels", optional=True),
     _ind("associes_chirurgiens_dentistes", "Chirurgiens-dentistes associés", "professionnels", "count", "professionnels", optional=True),
     _ind("associes_sages_femmes", "Sages-femmes associées", "professionnels", "count", "professionnels", optional=True),
@@ -122,27 +145,32 @@ INDICATORS = (
     _ind("file_active", "File active", "patientele", "count", "patients"),
     _ind("c2s_patients", "Patients C2S", "patientele", "count", "patients"),
     _ind("c2s_taux", "Taux de patients C2S", "patientele", "percent", "%"),
-    _ind("ame_patients", "Patients AME", "patientele", "count", "patients"),
+    _ind("ame_patients", "Patients AME", "patientele", "count", "patients", queries=Q_PATIENTELE),
     _ind("ame_taux", "Taux de patients AME", "patientele", "percent", "%"),
     # C — Rémunération
     _ind("aci_remuneration_totale", "Rémunération totale ACI (exercice)", "remuneration", "money", "€",
-         "Total de l'exercice : ni l'avance, ni le solde."),
-    _ind("aci_avance_exercice", "Avance versée (exercice)", "remuneration", "money", "€"),
-    _ind("aci_solde_exercice", "Solde (exercice)", "remuneration", "money", "€"),
-    _ind("aci_avance_exercice_suivant", "Avance de l'exercice suivant", "remuneration", "money", "€"),
+         "Total de l'exercice : ni l'avance, ni le solde.", queries=Q_REMUNERATION),
+    _ind("aci_avance_exercice", "Avance versée (exercice)", "remuneration", "money", "€", queries=Q_REMUNERATION),
+    _ind("aci_solde_exercice", "Solde (exercice)", "remuneration", "money", "€", queries=Q_REMUNERATION),
+    _ind("aci_avance_exercice_suivant", "Avance de l'exercice suivant", "remuneration", "money", "€", queries=Q_REMUNERATION),
     # D — Accès aux soins
-    _ind("horaires_ouverture", "Horaires d'ouverture", "acces_soins", "text"),
+    _ind("horaires_ouverture", "Horaires d'ouverture", "acces_soins", "text",
+         description="Jours et heures d'ouverture de la structure, pas le barème de points.", queries=Q_HORAIRES),
     _ind("soins_non_programmes", "Soins non programmés chaque jour ouvré", "acces_soins", "text"),
     _ind("lien_sas", "Lien avec le SAS", "acces_soins", "text"),
     # E — Coordination
     _ind("protocoles_realises", "Protocoles pluriprofessionnels réalisés", "coordination", "count", "protocoles",
-         "Nombre réalisé par la structure, pas le maximum possible."),
-    _ind("protocoles_remuneres", "Protocoles pluriprofessionnels rémunérés", "coordination", "count", "protocoles"),
+         "Nombre réalisé par la structure, pas le maximum possible.", queries=Q_PROTOCOLES),
+    _ind("protocoles_remuneres", "Protocoles pluriprofessionnels rémunérés", "coordination", "count", "protocoles",
+         queries=Q_PROTOCOLES),
     _ind("fonction_coordination", "Fonction de coordination", "coordination", "text", optional=True),
     # F — IPA / formation
     _ind("presence_ipa", "Présence d'IPA", "ipa_formation", "text", "",
-         "Uniquement si le document l'indique explicitement pour la structure."),
-    _ind("stages_nombre", "Stages (formation des jeunes)", "ipa_formation", "count", "stages"),
+         "Uniquement si le document l'indique explicitement pour la structure "
+         "(ex. indicateur IPA atteint avec des points ou une rémunération).", queries=Q_IPA),
+    _ind("stages_formation", "Stages (formation des jeunes)", "ipa_formation", "text", "",
+         "Accueil de stagiaires par la structure : critère atteint (points ou rémunération "
+         "obtenus) et formulation du document (ex. « au moins 2 stages dans l'année »).", queries=Q_STAGES),
     # G — Système d'information
     _ind("si_labellisation", "Système d'information labellisé ANS (niveau)", "systeme_information", "text", "",
          "Niveau obtenu par la structure (standard / avancé)."),

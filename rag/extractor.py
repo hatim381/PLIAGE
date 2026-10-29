@@ -96,10 +96,15 @@ Règles :
    Exemple : « pour une patientèle de référence de 4 000 patients » => value_type "methodological_reference".
 4. value_type ∈ establishment_value, methodological_reference, maximum, threshold, points, remuneration, unknown.
 5. Indicateur absent des passages : ne l'inclus pas. Jamais 0 par défaut : une absence de preuve n'est pas un zéro.
+   En revanche, un 0 écrit explicitement pour la structure est une valeur valide.
 6. Interdit : « probablement », « semble », « on peut supposer », estimation.
-7. Ne mélange pas : associés / vacataires ; avance / solde / total ; maximum / réalisé ; points / euros.
-8. period : exercice ou année si le passage l'indique explicitement, sinon null.
-9. Nombres : value est un nombre JSON (ex. 1250, 18450.75, 12). Textes : phrase courte fidèle au passage.
+7. Un montant versé ou alloué à la structure (total, avance, solde) et des points obtenus par la structure sont des establishment_value ;
+   « remuneration » et « points » servent aux montants / points d'une grille qui ne correspondent pas à l'indicateur demandé.
+8. Tableaux : une ligne de barème (critère, « au moins », « maxi ») n'est atteinte par la structure que si des points ou un montant non nul lui sont associés ; cite alors la ligne avec ces valeurs.
+9. Ne mélange pas : associés / vacataires ; avance / solde / total ; maximum / réalisé ; points / euros.
+   OCR : « à » est souvent lu « 4 » (« s'élève 412 345,67 € » pour « à 12 345,67 € ») ; si un tableau récapitulatif donne le même montant, cite le tableau.
+10. period : exercice ou année si le passage l'indique explicitement, sinon null.
+11. Nombres : value est un nombre JSON (ex. 1250, 18450.75, 12). Textes : phrase courte fidèle au passage.
 
 Réponds uniquement avec ce JSON :
 {{"candidates": [{{"indicator": "...", "value": ..., "unit": "...", "value_type": "...", "chunk": "C1", "quote": "...", "period": null}}]}}"""
@@ -220,6 +225,9 @@ def _numeric_candidate(candidate, ind, chunk_text):
         return candidate
 
     candidate.grounded = True
+    if (ind.kind, candidate.value_type) in (("money", REMUNERATION), ("points", POINTS)):
+        # Pour un indicateur monétaire, « remuneration » est la valeur elle-même.
+        candidate.value_type = ESTABLISHMENT
     forced = classify_value_context(context, value, ind)
     if forced and candidate.value_type in (ESTABLISHMENT, UNKNOWN):
         log.info("%s=%s reclassé %s (contexte)", ind.key, value, forced)
@@ -268,6 +276,19 @@ def _flag_ambiguous_staff_column(candidate, ind, chunk_text):
         )
 
 
+def _reanchor(candidate, ind, evidence):
+    """Valeur absente du passage cité : cherche le passage qui contient citation et valeur."""
+    value = parse_number(candidate.value)
+    if value is None or not candidate.quote:
+        return None
+    for item in evidence:
+        if item.chunk_id == candidate.chunk_id:
+            continue
+        if contains_number(item.content, value) and quote_in_chunk(candidate.quote, item.content):
+            return item
+    return None
+
+
 def to_candidates(raw_candidates, evidence):
     by_id = {item.chunk_id: item for item in evidence}
     candidates = []
@@ -300,6 +321,13 @@ def to_candidates(raw_candidates, evidence):
             _text_candidate(candidate, chunk.content)
         else:
             _numeric_candidate(candidate, ind, chunk.content)
+            other = _reanchor(candidate, ind, evidence) if candidate.rejection else None
+            if other:
+                log.info("%s=%s ré-ancré de %s vers %s", ind.key, candidate.value, chunk.chunk_id, other.chunk_id)
+                candidate.rejection = None
+                candidate.chunk_id, candidate.source, candidate.file_id = other.chunk_id, other.source, other.file_id
+                chunk = other
+                _numeric_candidate(candidate, ind, chunk.content)
             _flag_ambiguous_staff_column(candidate, ind, chunk.content)
         candidates.append(candidate)
     return candidates

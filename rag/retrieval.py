@@ -32,6 +32,22 @@ def build_queries(plan, families, attempt):
     return queries
 
 
+MAX_TARGETED_QUERIES = 12
+
+
+def build_indicator_queries(plan, indicators, attempt):
+    """Requêtes de 2e passe propres aux indicateurs encore manquants, sans doublon."""
+    target = plan.target_label or ""
+    queries, seen = [], set()
+    for ind in indicators:
+        for template in ind.queries:
+            text = re.sub(r"\s+", " ", template.format(target=target)).strip()
+            if text not in seen and len(queries) < MAX_TARGETED_QUERIES:
+                seen.add(text)
+                queries.append(RAGQuery(family=ind.family, text=text, attempt=attempt))
+    return queries
+
+
 def build_retrieval_prompt(queries, plan):
     lines = [
         "TÂCHE TECHNIQUE — COLLECTE DE PASSAGES DOCUMENTAIRES",

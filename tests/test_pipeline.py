@@ -92,19 +92,54 @@ def test_end_to_end_patientele():
     assert any(s.startswith("🔎 Analyse") for s in steps)
 
 
-def test_no_retry_when_family_found():
+def test_no_family_retry_when_found_then_one_targeted_pass():
     plan = route(f"Dans {TARGET}, quelle est la patientèle de référence ?")
     client = FakeClient([])
-    run_multi_rag(client, Conversation(), plan)
-    assert client.turns == 1
+    report = run_multi_rag(client, Conversation(), plan)
+    # 1 tour de recherche par famille, puis 1 tour dédié aux indicateurs manquants.
+    assert client.turns == 2
+    assert "Nombre de patients AME" in client.prompts[1]
+    assert [a["attempt"] for a in report.debug["retrieval"]] == [1, 4]
+
+
+def test_targeted_pass_finds_missing_indicator():
+    class TargetedClient(FakeClient):
+        def run_openwebui_turn(self, prompt, conv, model_id, model_name, timeout=240):
+            if "Avance sur exercice" not in prompt:
+                return super().run_openwebui_turn(prompt, conv, model_id, model_name, timeout)
+            self.turns += 1
+            chunk = {"content": "Synthèse de la rémunération : Total de la rémunération Exercice 2023 52 110,10 €",
+                     "source": TARGET, "file_id": "f-target"}
+            content = tool_block("query_knowledge_files", {"query": "Avance sur exercice"}, [chunk])
+            message = {"id": "a", "content": content, "done": True, "role": "assistant"}
+            return PliageTurn(content=content, message=message, chat_id="chat-1",
+                              assistant_message_id="a", match_method="expected_id")
+
+        def call_standard(self, messages, model_id, timeout=300):
+            if "52 110,10" not in messages[-1]["content"]:
+                return json.dumps({"candidates": []})
+            chunk_id = re.search(r"\[(C\d+)\][^\[]*52 110,10", messages[-1]["content"]).group(1)
+            return json.dumps({"candidates": [{
+                "indicator": "aci_remuneration_totale", "value": 52110.10, "unit": "€",
+                "value_type": "remuneration", "chunk": chunk_id,
+                "quote": "Total de la rémunération Exercice 2023 52 110,10 €", "period": "2023",
+            }]})
+
+    plan = route(f"Dans {TARGET}, rémunération allouée dans le cadre de l'ACI")
+    client = TargetedClient([])
+    report = run_multi_rag(client, Conversation(), plan)
+    result = report.results["aci_remuneration_totale"]
+    # « remuneration » pour un indicateur monétaire = valeur de la structure.
+    assert result.status == CONFIRMED
+    assert result.value == 52110.10
 
 
 def test_retry_is_bounded():
     plan = route(f"Dans {TARGET}, présence d'IPA ?")
     client = FakeClient([])
     report = run_multi_rag(client, Conversation(), plan)  # aucun passage IPA dans CHUNKS
-    assert client.turns == 3
-    assert [q.attempt for q in report.queries] == [1, 2, 3]
+    assert client.turns == 4  # 3 tentatives par famille + 1 passe dédiée
+    assert sorted({q.attempt for q in report.queries}) == [1, 2, 3, 4]
     assert report.results["presence_ipa"].status == NOT_FOUND
 
 
