@@ -161,3 +161,25 @@ def test_quote_matching_tolerates_table_formatting():
 def test_parse_extraction_response_with_fences():
     text = '```json\n{"candidates": [{"indicator": "file_active", "value": 2191}]}\n```'
     assert parse_extraction_response(text)[0]["value"] == 2191
+
+
+def test_ocr_prefix_variant_of_an_amount_is_not_a_conflict():
+    ev = evidence("Lettre : s'élève 412 345,67 € au titre de l'exercice.",
+                  "Total de la rémunération Exercice 2023 12 345,67 €")
+    raws = [
+        raw("aci_remuneration_totale", 412345.67, "C1", "s'élève 412 345,67 €"),
+        raw("aci_remuneration_totale", 12345.67, "C2", "Total de la rémunération Exercice 2023 12 345,67 €"),
+    ]
+    result = results_for(raws, ev, families=("remuneration",))["aci_remuneration_totale"]
+    assert result.status == CONFIRMED
+    assert result.value == 12345.67
+
+
+def test_unrelated_amounts_remain_a_conflict():
+    ev = evidence("Total 12 345,67 €", "Total 98 765,43 €")
+    raws = [
+        raw("aci_remuneration_totale", 12345.67, "C1", "Total 12 345,67 €"),
+        raw("aci_remuneration_totale", 98765.43, "C2", "Total 98 765,43 €"),
+    ]
+    result = results_for(raws, ev, families=("remuneration",))["aci_remuneration_totale"]
+    assert result.status == CONFLICT

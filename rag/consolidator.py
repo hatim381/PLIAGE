@@ -37,6 +37,34 @@ def group_by_value(candidates, kind):
     return groups
 
 
+def _digits(value):
+    return f"{float(value):.2f}".replace(".", "").lstrip("0")
+
+
+def _drop_ocr_prefix_variants(groups, kind):
+    """Montants dont l'un n'est que l'autre précédé d'un chiffre parasite (OCR).
+
+    « s'élève 412 345,67 € » lu pour « à 12 345,67 € » : le montant le plus
+    court est retenu seulement s'il est lui-même attesté par un autre groupe.
+    """
+    if kind != "money" or len(groups) < 2:
+        return groups
+    kept = []
+    for group in groups:
+        digits = _digits(group[0].value)
+        is_variant = any(
+            other is not group
+            and len(_digits(other[0].value)) == len(digits) - 1
+            and digits.endswith(_digits(other[0].value))
+            for other in groups
+        )
+        if is_variant:
+            log.info("montant %s écarté : variante OCR d'un autre montant", group[0].value)
+        else:
+            kept.append(group)
+    return kept
+
+
 def display_value(value, kind):
     if value is None:
         return ""
@@ -100,7 +128,7 @@ def consolidate_indicator(ind, candidates):
         _set_fallback_status(result, candidates, ind.kind)
         return result
 
-    groups = group_by_value(usable, ind.kind)
+    groups = _drop_ocr_prefix_variants(group_by_value(usable, ind.kind), ind.kind)
     if len(groups) > 1:
         result.status = CONFLICT
         values = " / ".join(display_value(g[0].value, ind.kind) for g in groups)
