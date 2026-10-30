@@ -15,6 +15,10 @@ class PliageConfigError(PliageError):
     user_title = "Configuration manquante"
 
 
+class VisualReviewConfigError(PliageConfigError, ValueError):
+    user_title = "Relecture visuelle non lancée"
+
+
 class PliageNetworkError(PliageError):
     user_title = "Erreur réseau"
 

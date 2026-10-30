@@ -14,8 +14,9 @@ import streamlit as st
 
 from pliage.client import Conversation, PliageClient
 from pliage.config import API_TOKEN, setup_logging
-from pliage.errors import PliageError
+from pliage.errors import PliageError, VisualReviewConfigError
 from pliage.models import MODELS, PREMIUM_ID
+from pliage.version import APP_VERSION
 from pliage.parser import (
     clean_final_answer,
     extract_knowledge_results,
@@ -26,6 +27,7 @@ from pliage.parser import (
 from pliage.prompts import STRICT_RAG_INSTRUCTIONS
 from rag.pipeline import run_multi_rag
 from rag.router import route
+from rag.visual_review import DEFAULT_VISION_MODEL
 from ui.render import build_answer_markdown, render_debug, render_evidence, render_diagnostics
 
 setup_logging()
@@ -106,15 +108,28 @@ with st.sidebar:
     visual_review = None
     with st.expander("Relire les tableaux en image"):
         st.caption("Garde Le Premium pour la recherche documentaire. Le modèle ci-dessous lit les images. Joins le PDF ciblé et indique les pages à relire. Les images seront envoyées à ton API Pliage avec le modèle choisi.")
-        visual_pdf = st.file_uploader("PDF pour la relecture visuelle", type=["pdf"])
-        visual_pages = st.text_input("Pages à relire (maximum 5)", placeholder="3,7")
-        visual_model = st.text_input("Identifiant du modèle Pliage compatible images", value=os.getenv("VISION_MODEL", ""))
-        visual_enabled = st.checkbox("Activer la relecture visuelle pour cette recherche")
-        if visual_enabled and visual_pdf and visual_model.strip() and visual_pages.strip():
-            visual_review = {"data": visual_pdf.getvalue(), "name": visual_pdf.name,
+        visual_pdf = st.file_uploader("PDF pour la relecture visuelle", type=["pdf"], key="visual_pdf")
+        visual_pages = st.text_input("Pages à relire (maximum 5)", placeholder="3,7", key="visual_pages")
+        visual_model = st.text_input(
+            "Identifiant du modèle Pliage compatible images",
+            value=os.getenv("VISION_MODEL", "").strip() or DEFAULT_VISION_MODEL,
+            key="visual_model",
+        )
+        visual_enabled = st.checkbox("Activer la relecture visuelle pour cette recherche", key="visual_enabled")
+        if visual_enabled:
+            # Preserve the request even if incomplete. The pipeline rejects it
+            # before any API call instead of silently using OCR alone.
+            visual_review = {"data": visual_pdf.getvalue() if visual_pdf else b"",
+                             "name": visual_pdf.name if visual_pdf else "",
                              "pages": visual_pages, "model": visual_model}
-        elif visual_enabled:
-            st.info("Renseigne le PDF, les pages et le modèle avant la recherche.")
+    if not visual_enabled:
+        st.caption("👁️ Relecture visuelle désactivée. Les recherches utilisent les passages texte.")
+    elif not is_premium or not multi_rag:
+        st.warning("Pour la relecture visuelle, sélectionne Le Premium et active la recherche multi-RAG.")
+    elif not (visual_pdf and visual_model.strip() and visual_pages.strip()):
+        st.warning("Relecture visuelle incomplète : renseigne le PDF, les pages et le modèle. La recherche sera bloquée tant qu’il manque ces éléments.")
+    else:
+        st.info(f"👁️ Relecture visuelle demandée : pages {visual_pages}, modèle {visual_model}.")
     show_evidence = st.toggle("📑 Afficher les preuves", value=False)
     debug_mode = st.toggle("🛠️ Debug", value=False)
 
@@ -129,6 +144,7 @@ with st.sidebar:
     if st.session_state.conversation.chat_id:
         st.caption("🟢 Conversation Pliage active")
     st.caption(f"{len(st.session_state.messages)} message(s)")
+    st.caption(f"Version {APP_VERSION}")
 
 conversation = st.session_state.conversation
 
@@ -294,7 +310,13 @@ def run_multi_rag_turn(plan):
             raise
         on_step("📝 Construction de la réponse…")
         report.markdown = build_answer_markdown(report)
-        status.update(label="✅ Analyse terminée", state="complete", expanded=False)
+        visual_state = report.visual_review.status
+        if visual_state == 'failed':
+            status.update(label="⚠️ Analyse du texte terminée, relecture visuelle échouée", state="error", expanded=False)
+        elif visual_state == 'partial':
+            status.update(label="⚠️ Analyse terminée, relecture visuelle partielle", state="complete", expanded=False)
+        else:
+            status.update(label="✅ Analyse terminée", state="complete", expanded=False)
 
     report.debug["mode"] = "multi-rag"
     report.debug["queries"] = [
@@ -334,10 +356,14 @@ def run_standard_turn():
 
 
 def answer(prompt):
+    if visual_review is not None and not (is_premium and multi_rag):
+        raise VisualReviewConfigError('Sélectionne Le Premium et active la recherche multi-RAG pour relire les images.')
     if MODEL["type"] != "openwebui":
         return run_standard_turn()
     if is_premium and multi_rag:
         plan = route(prompt)
+        if visual_review is not None and not plan.is_extraction:
+            raise VisualReviewConfigError('Précise les indicateurs à extraire du PDF pour lancer la relecture visuelle.')
         if plan.is_extraction:
             return run_multi_rag_turn(plan)
     return run_openwebui_turn(prompt)

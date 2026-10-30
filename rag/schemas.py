@@ -134,6 +134,20 @@ class ValidationCheck:
 
 
 @dataclass
+class VisualReviewState:
+    """État de cette analyse, sans PDF, image ni réponse brute de l'API."""
+
+    status: str = "disabled"  # disabled | completed | partial | failed
+    model: str | None = None
+    source: str | None = None
+    requested_pages: list = field(default_factory=list)
+    completed_pages: list = field(default_factory=list)
+    failures: dict = field(default_factory=dict)
+    candidate_count: int = 0
+    usable_indicators: list = field(default_factory=list)
+
+
+@dataclass
 class ExtractionReport:
     plan: RoutePlan
     queries: list = field(default_factory=list)
@@ -146,3 +160,4 @@ class ExtractionReport:
     warnings: list = field(default_factory=list)
     debug: dict = field(default_factory=dict)
     markdown: str = ""
+    visual_review: VisualReviewState = field(default_factory=VisualReviewState)

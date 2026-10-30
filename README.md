@@ -62,10 +62,21 @@ ne certifient pas la lecture fidèle des tableaux.
 
 Dans la barre latérale, développer « Relire les tableaux en image », joindre le
 PDF ciblé, indiquer jusqu'à cinq pages (par exemple `3,7`) et renseigner un identifiant
-de modèle compatible images réellement accessible sur l'API Pliage. La variable
-facultative `VISION_MODEL` préremplit cet identifiant. Activer la case puis envoyer
+de modèle compatible images réellement accessible sur l'API Pliage. Le Généraliste
+(`mistral-medium-2508`) est prérempli. La variable facultative `VISION_MODEL` permet
+de changer cette valeur par défaut. Garder **Le Premium** comme modèle principal.
+Activer la case puis envoyer
 la recherche multi-RAG Premium. Aucun fournisseur externe ni clé supplémentaire
 n'est utilisé : les images sont envoyées au même point d'entrée Pliage.
+
+Une relecture demandée avec un PDF, des pages ou un modèle manquants bloque la
+recherche avant tout appel API. Elle exige Le Premium et la recherche multi-RAG.
+Chaque réponse conserve son propre état de relecture : désactivée, effectuée,
+partielle ou échouée, avec le modèle, les pages demandées et celles effectivement
+relues. Un appel réussi sans valeur exploitable est signalé. L'échec d'une page
+n'efface pas les lectures réussies des autres pages. La version de l'application
+est affichée dans la barre latérale et dans les réponses pour identifier le code
+déployé. Une ancienne réponse n'est pas recalculée lors du changement d'un réglage.
 
 Le PDF joint doit correspondre au nom ciblé dans la question. Le service ne fournit
 pas les images des documents déjà indexés : le fichier doit donc être joint dans

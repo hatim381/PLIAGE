@@ -44,8 +44,10 @@ def test_visual_review_uses_image_and_does_not_auto_confirm_new_value():
                                'candidates': [{'indicator': 'protocoles_realises', 'value': 3,
                                                'quote': 'Nombre de protocoles réalisés et rémunérés : 3',
                                                'value_type': 'establishment_value'}]})
-    evidence, candidates = review_pages(Client(), plan, indicators,
+    evidence, candidates, state = review_pages(Client(), plan, indicators,
         {'name': 'MSP.pdf', 'data': pdf, 'pages': '1', 'model': 'configured-vision'}, lambda _: None)
+    assert state.status == 'completed'
+    assert state.completed_pages == [1]
     report = ExtractionReport(plan=plan, results=consolidate([], indicators))
     apply_visual_review(report, evidence, candidates, indicators)
     assert report.results['protocoles_realises'].value == 3
@@ -71,7 +73,7 @@ def test_different_visual_and_ocr_values_remain_conflict():
 def test_other_pdf_is_rejected_before_api_call():
     with pytest.raises(ValueError, match='correspondre'):
         review_pages(None, RoutePlan(question='', families=[], target_file='VERRIERES.pdf'), [],
-                     {'name': 'AUTRE.pdf', 'model': 'vision'}, lambda _: None)
+                     {'name': 'AUTRE.pdf', 'model': 'vision', 'pages': '1', 'data': b'not opened'}, lambda _: None)
 
 
 def test_consistent_protocol_points_remain_confirmed():

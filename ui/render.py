@@ -6,6 +6,7 @@ utilisent Streamlit.
 
 import json
 
+from pliage.version import APP_VERSION
 from rag.catalog import INDICATORS_BY_KEY
 from rag.consolidator import display_value
 from rag.schemas import CONFIRMED, CONFLICT, NEEDS_VERIFICATION, NOT_FOUND
@@ -40,12 +41,36 @@ def visible_results(report):
     return [r for r in report.results.values() if not (r.optional and r.status == NOT_FOUND)]
 
 
+def visual_review_markdown(report):
+    state = report.visual_review
+    if state.status == 'disabled':
+        return ('👁️ **Relecture visuelle : désactivée.** Cette réponse utilise uniquement les passages texte. '
+                'Pour relire les images, joins le PDF et active « Relire les tableaux en image ».')
+    requested = ', '.join(map(str, state.requested_pages))
+    completed = ', '.join(map(str, state.completed_pages)) or 'aucune'
+    labels = {'completed': 'effectuée', 'partial': 'partielle', 'failed': 'échouée'}
+    lines = [
+        f"👁️ **Relecture visuelle : {labels[state.status]}.** "
+        f"Modèle : `{_cell(state.model)}`. PDF : {_cell(state.source)}. "
+        f"Pages demandées : {requested}. Pages relues : {completed}.",
+    ]
+    if state.usable_indicators:
+        lines.append(f"{len(state.usable_indicators)} indicateur(s) avec une proposition visuelle exploitable, à comparer au PDF.")
+    else:
+        lines.append('Aucune valeur visuelle exploitable. Les résultats ci-dessous restent fondés sur les passages texte.')
+    for page, message in state.failures.items():
+        lines += ['', f'- Page {page} : {message}']
+    return '\n\n'.join(lines)
+
+
 def build_answer_markdown(report):
     rows = visible_results(report)
     if not rows:
         return "Aucun indicateur à extraire n'a été identifié dans la demande."
 
     lines = [
+        visual_review_markdown(report),
+        '',
         "| Indicateur | Valeur | Statut | Source |",
         "|---|---:|---|---|",
     ]
@@ -76,6 +101,7 @@ def build_answer_markdown(report):
         passed = sum(1 for c in report.checks if c.ok)
         lines += ["", f"🛡️ Contrôles de cohérence : {passed}/{len(report.checks)} validés."]
         lines.append("Ces contrôles ne certifient pas la fidélité de la lecture du document.")
+    lines += ['', f"Version de l’application : {APP_VERSION}."]
     return "\n".join(lines)
 
 

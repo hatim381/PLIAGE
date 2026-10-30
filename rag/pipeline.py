@@ -13,6 +13,7 @@
 
 import logging
 import time
+from dataclasses import asdict
 
 from pliage.config import EXTRACTION_MODEL
 from pliage.errors import ExtractionParseError
@@ -26,7 +27,7 @@ from rag.extractor import build_extraction_messages, parse_extraction_response, 
 from rag.retrieval import (
     MAX_ATTEMPTS, EvidenceStore, build_indicator_queries, build_queries, build_retrieval_prompt,
 )
-from rag.schemas import CONFIRMED, NEEDS_VERIFICATION, NOT_FOUND, ExtractionReport
+from rag.schemas import CONFIRMED, NEEDS_VERIFICATION, NOT_FOUND, ExtractionReport, VisualReviewState
 from rag.validator import validate
 
 log = logging.getLogger("rag.pipeline")
@@ -160,6 +161,12 @@ def _add_scope_warnings(plan, report, store):
 def run_multi_rag(client, conv, plan, on_step=lambda label: None, visual_review=None):
     started = time.time()
     report = ExtractionReport(plan=plan)
+    if visual_review is not None:
+        from rag.visual_review import validate_review_options
+        pages = validate_review_options(plan, visual_review)
+        report.visual_review = VisualReviewState(
+            model=visual_review['model'].strip(), source=visual_review['name'], requested_pages=pages,
+        )
     indicators = indicators_for(plan.families)
     store = EvidenceStore(plan)
 
@@ -184,14 +191,20 @@ def run_multi_rag(client, conv, plan, on_step=lambda label: None, visual_review=
     _targeted_pass(client, conv, plan, report, store, indicators, on_step)
     report.evidence = store.items
 
-    if visual_review:
-        from rag.visual_review import review_pages, apply_visual_review
+    if visual_review is not None:
+        from rag.visual_review import review_pages, apply_visual_review, review_failure_message
         try:
-            visual_evidence, visual_candidates = review_pages(client, plan, indicators, visual_review, on_step)
-            apply_visual_review(report, visual_evidence, visual_candidates, indicators)
+            visual_evidence, visual_candidates, report.visual_review = review_pages(
+                client, plan, indicators, visual_review, on_step,
+            )
+            if visual_evidence:
+                apply_visual_review(report, visual_evidence, visual_candidates, indicators)
         except Exception as error:
             log.warning("Relecture visuelle interrompue (%s)", type(error).__name__)
-            report.warnings.append("Relecture visuelle indisponible : vérifie le fichier, les pages et le modèle compatible images. Résultats OCR conservés.")
+            report.visual_review.status = 'failed'
+            report.visual_review.failures = {
+                page: review_failure_message(error) for page in report.visual_review.requested_pages
+            }
 
     on_step("🛡️ Validation des valeurs…")
     report.checks = validate(report.results, report.evidence)
@@ -214,6 +227,7 @@ def run_multi_rag(client, conv, plan, on_step=lambda label: None, visual_review=
         "candidates": len(report.candidates),
         "confirmed": statuses.count(CONFIRMED),
         "not_found": statuses.count(NOT_FOUND),
+        "visual_review": asdict(report.visual_review),
         "validation": [{"check": c.name, "ok": c.ok, "message": c.message} for c in report.checks],
     })
     log.info(
