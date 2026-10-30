@@ -69,7 +69,8 @@ def build_answer_markdown(report):
 
     if report.checks:
         passed = sum(1 for c in report.checks if c.ok)
-        lines += ["", f"🛡️ Contrôles de cohérence : {passed}/{len(report.checks)} réussis."]
+        lines += ["", f"🛡️ Contrôles de cohérence : {passed}/{len(report.checks)} validés."]
+        lines.append("Ces contrôles ne certifient pas la fidélité de la lecture du document.")
     return "\n".join(lines)
 
 
@@ -123,7 +124,7 @@ def render_evidence(report):
             for e in report.evidence:
                 families = ", ".join(e.families) or "—"
                 st.markdown(f"**{e.chunk_id}** — {e.source or 'source inconnue'} — familles : {families}")
-                st.text(e.content[:1500] + ("…" if len(e.content) > 1500 else ""))
+                st.code(e.content, language="text", wrap_lines=True)
 
 
 def _truncate(value, limit=DEBUG_TEXT_LIMIT):
@@ -143,3 +144,49 @@ def render_debug(debug):
     st.subheader("🛠️ Debug Pliage")
     safe = json.loads(json.dumps(_truncate(debug), default=str, ensure_ascii=False))
     st.json(safe, expanded=False)
+
+
+def diagnostic_entries(report):
+    """Exact received passages and candidate decisions, including rejected ones."""
+    entries = []
+    for result in visible_results(report):
+        if not (result.indicator.startswith(("associes_", "vacataires_", "protocoles_"))
+                or result.indicator == "presence_ipa"):
+            continue
+        ids = {c.chunk_id for c in result.candidates if c.chunk_id}
+        if result.chunk_id:
+            ids.add(result.chunk_id)
+        chunks = [e for e in report.evidence if e.chunk_id in ids]
+        if not chunks:
+            family = INDICATORS_BY_KEY[result.indicator].family
+            chunks = [e for e in report.evidence if family in e.families]
+        entries.append({
+            "indicateur": result.indicator,
+            "statut": result.status,
+            "valeur": result.value,
+            "messages": result.messages,
+            "candidats": [{
+                "valeur": c.value, "citation": c.quote, "passage": c.chunk_id,
+                "type": c.value_type, "ancre": c.grounded,
+                "rejet": c.rejection, "motif": c.note,
+            } for c in result.candidates],
+            "passages_recus": [{
+                "id": e.chunk_id, "source": e.source, "page": e.page,
+                "texte_integral": e.content,
+            } for e in chunks],
+        })
+    return entries
+
+
+def render_diagnostics(report):
+    import streamlit as st
+
+    entries = diagnostic_entries(report)
+    if entries:
+        with st.expander("Diagnostic des effectifs, protocoles et IPA"):
+            st.caption(
+                "Texte exact reçu de Pliage, citations et décisions d'extraction. "
+                "Une page absente des métadonnées reste inconnue. "
+                "Les passages longs peuvent avoir été tronqués avant envoi au modèle."
+            )
+            st.json(entries, expanded=False)
