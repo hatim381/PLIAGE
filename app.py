@@ -105,7 +105,7 @@ with st.sidebar:
     )
     visual_review = None
     with st.expander("Relire les tableaux en image"):
-        st.caption("Joins le PDF ciblé et indique les pages à relire. Les images seront envoyées à ton API Pliage avec le modèle choisi.")
+        st.caption("Garde Le Premium pour la recherche documentaire. Le modèle ci-dessous lit les images. Joins le PDF ciblé et indique les pages à relire. Les images seront envoyées à ton API Pliage avec le modèle choisi.")
         visual_pdf = st.file_uploader("PDF pour la relecture visuelle", type=["pdf"])
         visual_pages = st.text_input("Pages à relire (maximum 5)", placeholder="3,7")
         visual_model = st.text_input("Identifiant du modèle Pliage compatible images", value=os.getenv("VISION_MODEL", ""))

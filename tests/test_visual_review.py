@@ -84,3 +84,69 @@ def test_consistent_protocol_points_remain_confirmed():
     results = consolidate(candidates, indicators_for(['coordination']))
     assert any(c.ok and c.name == 'points_protocoles_realises' for c in validate(results, [item]))
     assert results['protocoles_realises'].status == CONFIRMED
+
+
+STAFF_TRANSCRIPT = '''10 professionnels associés signataires
+- 3 médecins généralistes
+- 1 dentiste
+- 0 sage-femme
+- 5 professionnels paramédicaux
+- 0 autre professionnel
+- 1 pharmacien
+- 0 médecin spécialiste hors médecine générale
+
+1 professionnel vacataire
+- 0 médecin généraliste
+- 0 dentiste
+- 0 sage-femme
+- 1 professionnel paramédical
+- 0 autre professionnel
+- 0 pharmacien
+'''
+
+
+def test_visual_staff_sections_replace_ambiguous_ocr_with_reviewable_values():
+    from rag.visual_review import visual_candidates
+    from ui.render import build_answer_markdown
+    plan = RoutePlan(question='PS', families=['professionnels'])
+    indicators = indicators_for(plan.families)
+    ocr = Evidence(chunk_id='C1', content='associés et vacataires 0 médecin généraliste 1 professionnel paramédical', source='MSP.pdf')
+    previous = to_candidates([{'indicator': 'associes_medecins_generalistes', 'value': 0,
+        'quote': '0 médecin généraliste', 'chunk': 'C1', 'value_type': 'establishment_value'}], [ocr])
+    item = Evidence(chunk_id='V3', page='3', content=STAFF_TRANSCRIPT, source='MSP.pdf')
+    raws = [{'indicator': key, 'value': value, 'quote': quote, 'chunk': 'V3', 'value_type': 'establishment_value'}
+            for key, value, quote in [
+                ('associes_medecins_generalistes', 3, '3 médecins généralistes'),
+                ('associes_paramedicaux', 5, '5 professionnels paramédicaux'),
+                ('associes_chirurgiens_dentistes', 1, '1 dentiste'),
+                ('associes_pharmaciens', 1, '1 pharmacien'),
+                ('vacataires_paramedicaux', 1, '1 professionnel paramédical'),
+            ]]
+    candidates = visual_candidates(raws, item)
+    assert all(c.usable for c in candidates)
+    report = ExtractionReport(plan=plan, evidence=[ocr], candidates=previous,
+                              results=consolidate(previous, indicators))
+    apply_visual_review(report, [item], candidates, indicators)
+    for key, value in [('associes_medecins_generalistes', 3), ('associes_paramedicaux', 5),
+                       ('associes_chirurgiens_dentistes', 1), ('associes_pharmaciens', 1)]:
+        result = report.results[key]
+        assert result.value == value
+        assert result.status == NEEDS_VERIFICATION
+        assert result.chunk_id == 'V3'
+    assert '(image, page 3)' in build_answer_markdown(report)
+
+
+def test_visual_quote_from_wrong_staff_group_is_not_accepted():
+    from rag.visual_review import visual_candidates
+    item = Evidence(chunk_id='V3', page='3', content=STAFF_TRANSCRIPT, source='MSP.pdf')
+    candidates = visual_candidates([{'indicator': 'associes_medecins_generalistes', 'value': 0,
+        'quote': '0 médecin généraliste', 'chunk': 'V3', 'value_type': 'establishment_value'}], item)
+    assert not candidates[0].usable
+
+
+def test_visual_flat_columns_remain_ambiguous():
+    from rag.visual_review import visual_candidates
+    item = Evidence(chunk_id='V3', content='Associés | Vacataires\n3 médecins généralistes | 0 médecin généraliste', source='MSP.pdf')
+    candidates = visual_candidates([{'indicator': 'associes_medecins_generalistes', 'value': 3,
+        'quote': '3 médecins généralistes', 'chunk': 'V3', 'value_type': 'establishment_value'}], item)
+    assert not candidates[0].usable

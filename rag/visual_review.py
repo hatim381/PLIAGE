@@ -7,6 +7,7 @@ import pymupdf
 
 from pliage.pdf_preparation import open_pdf
 from rag.extractor import to_candidates
+from rag.text import normalize
 from rag.retrieval import source_matches_target
 from rag.schemas import Evidence
 
@@ -30,6 +31,55 @@ def parse_pages(text, page_count):
     return sorted(pages)
 
 
+
+def _staff_section(text, indicator, quote):
+    """Scope a visual staff quote to an explicit sequential group heading.
+
+    Flat side-by-side tables without sequential headings remain ambiguous.
+    The quote must occur verbatim (apart from Markdown and spacing) in exactly
+    one section of the requested group, never just somewhere on the page.
+    """
+    group = "associes" if indicator.startswith("associes_") else "vacataires"
+    lines = text.splitlines(keepends=True)
+    sections = []
+    current, content = None, []
+    for line in lines:
+        heading = re.fullmatch(
+            r"(?:\d+\s+)?professionnels?\s+(associes?(?:\s+signataires?)?|vacataires?)",
+            normalize(line).strip(" #*:-|"),
+        )
+        if heading:
+            if current:
+                sections.append((current, ''.join(content)))
+            current = "associes" if heading[1].startswith("associ") else "vacataires"
+            content = [line]
+        elif current:
+            content.append(line)
+    if current:
+        sections.append((current, ''.join(content)))
+    clean = lambda value: normalize(re.sub(r"[|*_#>`]+", " ", value))
+    query = clean(quote)
+    matches = [section for label, section in sections
+               if label == group and query and query in clean(section)]
+    return matches[0] if len(matches) == 1 else None
+
+
+def visual_candidates(raws, item):
+    """Use section context only for visual staff; keep all rejected traces."""
+    candidates = []
+    for raw in raws:
+        indicator = str(raw.get('indicator', ''))
+        is_staff = indicator.startswith(('associes_', 'vacataires_')) and not indicator.endswith('_total')
+        if is_staff:
+            section = _staff_section(item.content, indicator, str(raw.get('quote') or ''))
+            if section is not None:
+                scoped = Evidence(chunk_id=item.chunk_id, content=section, source=item.source,
+                                  page=item.page, families=item.families)
+                candidates.extend(to_candidates([raw], [scoped]))
+                continue
+        candidates.extend(to_candidates([raw], [item]))
+    return candidates
+
 def review_pages(client, plan, indicators, options, on_step):
     if not plan.target_file or not source_matches_target(options['name'], plan.target_file):
         raise ValueError('Le PDF joint doit correspondre au document ciblé dans la question.')
@@ -47,6 +97,10 @@ def review_pages(client, plan, indicators, options, on_step):
             prompt = (
                 'Lis uniquement cette image. Transcris les tableaux ligne par ligne en conservant '
                 'les en-têtes et les colonnes associés/vacataires, résultat/points/euros. '
+                'Effectifs : écris une section professionnels associés signataires puis une section '
+                'professionnels vacataires, chacune suivie de ses effectifs par profession. '
+                'Protocoles : zoome mentalement sur la cellule Détail de l’indicateur et transcris '
+                'son nombre visible, distinct des points, du plafond et du montant. Ne le calcule pas. '
                 'Ne complète aucun chiffre illisible. Une condition IPA ne prouve pas une présence. '
                 'Renvoie un objet JSON avec transcription (texte) et candidates (liste). '
                 'Chaque candidat contient indicator, value, value_type="establishment_value", '
@@ -70,7 +124,7 @@ def review_pages(client, plan, indicators, options, on_step):
             raws = [dict(raw, chunk=chunk_id) for raw in raws
                     if isinstance(raw, dict) and raw.get('indicator') in allowed]
             evidence.append(item)
-            candidates.extend(to_candidates(raws, [item]))
+            candidates.extend(visual_candidates(raws, item))
     return evidence, candidates
 
 

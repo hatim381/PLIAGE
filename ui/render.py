@@ -49,10 +49,15 @@ def build_answer_markdown(report):
         "| Indicateur | Valeur | Statut | Source |",
         "|---|---:|---|---|",
     ]
+    evidence_by_id = {e.chunk_id: e for e in report.evidence}
     for result in rows:
+        source = result.source or '—'
+        chunk = evidence_by_id.get(result.chunk_id)
+        if chunk and chunk.chunk_id.startswith('V') and chunk.page:
+            source += f" (image, page {chunk.page})"
         lines.append(
             f"| {_cell(result.label)} | {_cell(_value_cell(result))} "
-            f"| {STATUS_BADGES[result.status]} | {_cell(result.source or '—')} |"
+            f"| {STATUS_BADGES[result.status]} | {_cell(source)} |"
         )
 
     if report.sources:
