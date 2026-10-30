@@ -65,7 +65,9 @@ def test_ame_zero_is_coherent():
 def test_associates_and_vacataires_are_checked_separately():
     results = confirmed(
         associes_total=5, associes_medecins_generalistes=2, associes_paramedicaux=3,
-        vacataires_total=4, vacataires_paramedicaux=3, vacataires_autres=1,
+        associes_medecins_specialistes=0, associes_chirurgiens_dentistes=0,
+        associes_sages_femmes=0, associes_pharmaciens=0, associes_autres=0,
+        vacataires_total=4, vacataires_medecins=0, vacataires_paramedicaux=3, vacataires_autres=1,
     )
     checks = validate(results)
     assert check(checks, "total_associes").ok
@@ -87,3 +89,44 @@ def test_not_found_is_left_untouched():
     results = {"ame_taux": IndicatorResult(indicator="ame_taux", label="AME", status=NOT_FOUND)}
     assert validate(results) == []
     assert results["ame_taux"].value is None
+
+
+def test_full_staff_breakdown_below_total_is_not_validated():
+    results = confirmed(
+        associes_total=10, associes_medecins_generalistes=0, associes_paramedicaux=1,
+        associes_medecins_specialistes=0, associes_chirurgiens_dentistes=0,
+        associes_sages_femmes=0, associes_pharmaciens=0, associes_autres=0,
+    )
+    assert not check(validate(results), "total_associes").ok
+    assert results["associes_medecins_generalistes"].status == NEEDS_VERIFICATION
+    assert results["associes_paramedicaux"].status == NEEDS_VERIFICATION
+    assert results["associes_total"].status == CONFIRMED
+
+
+def test_ambiguous_staff_values_still_trigger_check():
+    results = confirmed(associes_total=10, associes_medecins_generalistes=0, associes_paramedicaux=1)
+    results["associes_paramedicaux"].status = NEEDS_VERIFICATION
+    control = check(validate(results), "total_associes")
+    assert not control.ok
+    assert "1 pour un total de 10" in control.message
+
+
+def test_partial_breakdown_equal_to_total_is_not_complete_validation():
+    results = confirmed(associes_total=10, associes_paramedicaux=10)
+    assert not check(validate(results), "total_associes").ok
+
+
+def test_total_without_categories_is_not_a_pass():
+    assert not check(validate(confirmed(associes_total=10)), "total_associes").ok
+
+
+def test_ipa_ocr_conditional_is_not_confirmed_by_validator():
+    results = confirmed(presence_ipa="Sila structure intègre parmi ses professionnels de santé un IPA")
+    assert not check(validate(results), "ipa_assertion").ok
+    assert results["presence_ipa"].status == NEEDS_VERIFICATION
+
+
+def test_explicit_ipa_assertion_is_preserved():
+    results = confirmed(presence_ipa="La structure emploie un IPA depuis 2023")
+    validate(results)
+    assert results["presence_ipa"].status == CONFIRMED

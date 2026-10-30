@@ -183,3 +183,32 @@ def test_unrelated_amounts_remain_a_conflict():
     ]
     result = results_for(raws, ev, families=("remuneration",))["aci_remuneration_totale"]
     assert result.status == CONFLICT
+
+
+def test_ocr_glued_conditional_ipa_is_methodological():
+    quote = "Sila structure intègre parmi ses professionnels de santé un IPA"
+    result = results_for(
+        [raw("presence_ipa", quote, "C1", quote)], evidence(quote),
+        families=("ipa_formation",),
+    )["presence_ipa"]
+    assert result.status == NOT_FOUND
+    assert result.candidates[0].value_type == METHODOLOGICAL
+
+
+def test_ipa_value_cannot_restore_condition_dropped_from_quote():
+    content = "Sila structure intègre parmi ses professionnels de santé un IPA"
+    result = results_for(
+        [raw("presence_ipa", content, "C1", "parmi ses professionnels de santé un IPA")],
+        evidence(content), families=("ipa_formation",),
+    )["presence_ipa"]
+    assert result.status != CONFIRMED
+
+
+def test_ipa_quote_suffix_cannot_hide_condition():
+    quote = "parmi ses professionnels de santé un IPA"
+    content = "Sila structure intègre " + quote
+    result = results_for(
+        [raw("presence_ipa", "Oui", "C1", quote)], evidence(content),
+        families=("ipa_formation",),
+    )["presence_ipa"]
+    assert result.status != CONFIRMED

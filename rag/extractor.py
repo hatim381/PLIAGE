@@ -104,7 +104,11 @@ Règles :
 9. Ne mélange pas : associés / vacataires ; avance / solde / total ; maximum / réalisé ; points / euros.
    OCR : « à » est souvent lu « 4 » (« s'élève 412 345,67 € » pour « à 12 345,67 € ») ; si un tableau récapitulatif donne le même montant, cite le tableau.
 10. period : exercice ou année si le passage l'indique explicitement, sinon null.
-11. Nombres : value est un nombre JSON (ex. 1250, 18450.75, 12). Textes : phrase courte fidèle au passage.
+11. IPA : « Si la structure intègre un IPA » est une condition de barème, jamais une présence attestée.
+    Cela reste vrai si l'OCR colle les mots (« Sila structure »). Une ligne IPA à zéro point ne prouve pas une absence.
+12. Effectifs : cite le groupe associés ou vacataires ET la profession avec sa valeur. Une colonne ambiguë est unknown.
+13. Protocoles : extrais le nombre réalisé dans la colonne de résultat, jamais un numéro de page ou un plafond du barème.
+14. Nombres : value est un nombre JSON (ex. 1250, 18450.75, 12). Textes : phrase courte fidèle au passage.
 
 Réponds uniquement avec ce JSON :
 {{"candidates": [{{"indicator": "...", "value": ..., "unit": "...", "value_type": "...", "chunk": "C1", "quote": "...", "period": null}}]}}"""
@@ -247,8 +251,22 @@ def _text_candidate(candidate, chunk_text):
     else:
         candidate.grounded = True
         quote = normalize(candidate.quote)
+        # Inspect the clause containing an exact quote too: the model may omit
+        # the leading "Si la structure" when copying a suffix of the criterion.
+        local_clause = ""
+        if candidate.indicator == "presence_ipa":
+            for clause in re.split(r"[\n|.;]", chunk_text):
+                if quote and quote in normalize(clause):
+                    local_clause = normalize(clause)
+                    break
+        if candidate.indicator == "presence_ipa" and re.search(
+            r"\bsi\s*(?:la\s*|le\s*|les\s*)?structure\b|\ben cas de\b",
+            normalize(f"{candidate.value} {candidate.quote} {local_clause}"),
+        ):
+            candidate.value_type = METHODOLOGICAL
+            candidate.note = "Condition de barème IPA, sans présence attestée dans la structure."
         if candidate.value_type == ESTABLISHMENT:
-            if re.search(r"\bsi (la|le|les|un|une) ", quote):
+            if re.search(r"\bsi\s*(la|le|les|un|une)\b", quote):
                 candidate.value_type = METHODOLOGICAL
             elif len(quote.split()) < MIN_TEXT_QUOTE_WORDS:
                 # Ex. « niveau avancé » : simple libellé d'une grille, pas une assertion.

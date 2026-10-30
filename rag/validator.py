@@ -5,10 +5,11 @@ Un contrôle échoué ne supprime jamais une valeur : il la passe en
 """
 
 import logging
+import re
 
 from rag.catalog import INDICATORS_BY_KEY
-from rag.schemas import CONFIRMED, ValidationCheck
-from rag.text import format_number
+from rag.schemas import CONFIRMED, NEEDS_VERIFICATION, ValidationCheck
+from rag.text import format_number, normalize
 
 log = logging.getLogger("rag.validation")
 
@@ -94,23 +95,52 @@ def check_aci_sum(results, checks):
 
 
 def check_professionals(results, checks, group):
+    # Include uncertain numerical categories: the OCR ambiguity must not hide
+    # a mismatch by excluding every suspect value from the sum.
     total = _confirmed(results, f"{group}_total")
     if not total:
         return
-    parts = [
-        r for k, r in results.items()
-        if k.startswith(f"{group}_") and k != f"{group}_total" and r.status == CONFIRMED
-    ]
+    expected = [key for key in INDICATORS_BY_KEY
+                if key.startswith(f"{group}_") and key != f"{group}_total"]
+    parts = [results[key] for key in expected if key in results
+             and results[key].status in (CONFIRMED, NEEDS_VERIFICATION)
+             and isinstance(results[key].value, (int, float))]
     if not parts:
+        _record(checks, results, f"total_{group}", False,
+                f"{group.capitalize()} : total présent, ventilation absente ou non numérique.", [])
         return
-    subtotal = sum(r.value for r in parts)
-    ok = subtotal <= total.value
+    subtotal = sum(part.value for part in parts)
+    complete = len(parts) == len(expected)
+    certain = all(part.status == CONFIRMED for part in parts)
+    # A partial subtotal equal to the total is compatible, but cannot validate
+    # missing categories. Lower subtotals are unresolved, never a passed check.
+    ok = complete and certain and subtotal == total.value
     message = (
         f"{group.capitalize()} : somme des catégories {format_number(subtotal, 'count')} "
         f"pour un total de {format_number(total.value, 'count')}."
     )
-    keys = [f"{group}_total"] + [p.indicator for p in parts]
+    if not complete:
+        message += " Ventilation incomplète : total non vérifiable."
+    elif subtotal != total.value:
+        message += " Somme différente du total : ventilation incohérente."
+    elif not certain:
+        message += " Des colonnes restent ambiguës : contrôle non validé."
+    keys = [part.indicator for part in parts]
+    if subtotal > total.value:
+        keys.append(f"{group}_total")
     _record(checks, results, f"total_{group}", ok, message, keys)
+
+
+def check_ipa_assertion(results, checks):
+    result = _confirmed(results, "presence_ipa")
+    if not result:
+        return
+    text = normalize(f"{result.value} {result.evidence}")
+    conditional = re.search(r"\bsi\s*(?:la\s*|le\s*|les\s*)?structure\b|\ben cas de\b", text)
+    if conditional:
+        _record(checks, results, "ipa_assertion", False,
+                "Condition de barème IPA : la présence dans la structure n'est pas établie.",
+                ["presence_ipa"])
 
 
 def check_protocols(results, checks):
@@ -135,4 +165,5 @@ def validate(results):
     check_professionals(results, checks, "associes")
     check_professionals(results, checks, "vacataires")
     check_protocols(results, checks)
+    check_ipa_assertion(results, checks)
     return checks

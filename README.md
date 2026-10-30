@@ -39,3 +39,21 @@ documents, en particulier les colonnes associés/vacataires et les effectifs/tau
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
 ```
+
+## Diagnostic des extractions
+
+Chaque réponse multi-RAG présente un volet « Diagnostic des effectifs, protocoles
+et IPA », indépendant du bouton d'affichage des preuves. Il contient les passages
+intégraux reçus de Pliage, leur source et leur page lorsqu'elle existe, les citations,
+les valeurs proposées et les motifs de rejet. Ces passages sont le texte reçu du
+service, pas un nouvel OCR local. Le modèle peut recevoir une version tronquée
+selon les plafonds du pipeline.
+
+Les contrôles d'effectifs comparent la somme des catégories au total. Une ventilation
+incomplète, ambiguë ou différente du total n'est pas validée. Les catégories numériques
+à vérifier participent à la somme sans devenir confirmées. Aucun effectif manquant
+n'est déduit. Un sous-total inférieur ne remet pas en cause un total directement attesté.
+
+Les conditions de barème IPA, y compris « Sila structure » après OCR, ne confirment
+pas une présence. Aucun point IPA ne prouve pas une absence. Les contrôles arithmétiques
+ne certifient pas la lecture fidèle des tableaux.

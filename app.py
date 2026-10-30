@@ -25,7 +25,7 @@ from pliage.parser import (
 from pliage.prompts import STRICT_RAG_INSTRUCTIONS
 from rag.pipeline import run_multi_rag
 from rag.router import route
-from ui.render import build_answer_markdown, render_debug, render_evidence
+from ui.render import build_answer_markdown, render_debug, render_evidence, render_diagnostics
 
 setup_logging()
 log = logging.getLogger("app")
@@ -217,6 +217,7 @@ def display_assistant_message(message):
     report = message.get("report")
     if report is not None:
         st.markdown(report.markdown)
+        render_diagnostics(report)
         if show_evidence:
             render_evidence(report)
         return
