@@ -157,7 +157,7 @@ def _add_scope_warnings(plan, report, store):
             )
 
 
-def run_multi_rag(client, conv, plan, on_step=lambda label: None):
+def run_multi_rag(client, conv, plan, on_step=lambda label: None, visual_review=None):
     started = time.time()
     report = ExtractionReport(plan=plan)
     indicators = indicators_for(plan.families)
@@ -184,8 +184,17 @@ def run_multi_rag(client, conv, plan, on_step=lambda label: None):
     _targeted_pass(client, conv, plan, report, store, indicators, on_step)
     report.evidence = store.items
 
+    if visual_review:
+        from rag.visual_review import review_pages, apply_visual_review
+        try:
+            visual_evidence, visual_candidates = review_pages(client, plan, indicators, visual_review, on_step)
+            apply_visual_review(report, visual_evidence, visual_candidates, indicators)
+        except Exception as error:
+            log.warning("Relecture visuelle interrompue (%s)", type(error).__name__)
+            report.warnings.append("Relecture visuelle indisponible : vérifie le fichier, les pages et le modèle compatible images. Résultats OCR conservés.")
+
     on_step("🛡️ Validation des valeurs…")
-    report.checks = validate(report.results)
+    report.checks = validate(report.results, report.evidence)
     report.sources = _used_sources(report)
 
     statuses = [r.status for r in report.results.values()]

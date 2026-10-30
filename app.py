@@ -8,6 +8,7 @@ Logique métier dans :
 
 import json
 import logging
+import os
 
 import streamlit as st
 
@@ -102,6 +103,18 @@ with st.sidebar:
         help="Décompose une demande d'indicateurs en recherches ciblées, "
              "puis consolide et valide les valeurs en Python (⭐ Le Premium).",
     )
+    visual_review = None
+    with st.expander("Relire les tableaux en image"):
+        st.caption("Joins le PDF ciblé et indique les pages à relire. Les images seront envoyées à ton API Pliage avec le modèle choisi.")
+        visual_pdf = st.file_uploader("PDF pour la relecture visuelle", type=["pdf"])
+        visual_pages = st.text_input("Pages à relire (maximum 5)", placeholder="3,7")
+        visual_model = st.text_input("Identifiant du modèle Pliage compatible images", value=os.getenv("VISION_MODEL", ""))
+        visual_enabled = st.checkbox("Activer la relecture visuelle pour cette recherche")
+        if visual_enabled and visual_pdf and visual_model.strip() and visual_pages.strip():
+            visual_review = {"data": visual_pdf.getvalue(), "name": visual_pdf.name,
+                             "pages": visual_pages, "model": visual_model}
+        elif visual_enabled:
+            st.info("Renseigne le PDF, les pages et le modèle avant la recherche.")
     show_evidence = st.toggle("📑 Afficher les preuves", value=False)
     debug_mode = st.toggle("🛠️ Debug", value=False)
 
@@ -275,7 +288,7 @@ def run_multi_rag_turn(plan):
             status.write(label)
 
         try:
-            report = run_multi_rag(client, conversation, plan, on_step=on_step)
+            report = run_multi_rag(client, conversation, plan, on_step=on_step, visual_review=visual_review)
         except Exception:
             status.update(label="❌ Analyse interrompue", state="error", expanded=False)
             raise

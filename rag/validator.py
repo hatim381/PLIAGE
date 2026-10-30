@@ -9,7 +9,7 @@ import re
 
 from rag.catalog import INDICATORS_BY_KEY
 from rag.schemas import CONFIRMED, NEEDS_VERIFICATION, ValidationCheck
-from rag.text import format_number, normalize
+from rag.text import format_number, normalize, parse_number
 
 log = logging.getLogger("rag.validation")
 
@@ -156,7 +156,40 @@ def check_protocols(results, checks):
     )
 
 
-def validate(results):
+def check_protocol_points(results, checks, evidence):
+    by_id = {item.chunk_id: item for item in evidence}
+    for key in ("protocoles_realises", "protocoles_remuneres"):
+        result = _confirmed(results, key)
+        if not result or result.chunk_id not in by_id:
+            continue
+        content = by_id[result.chunk_id].content
+        for line in content.splitlines():
+            normalized = normalize(line)
+            if "nombre de protocoles" not in normalized or "remun" not in normalized:
+                continue
+            match = re.search(
+                r"remuneres\s*[|:]?\s*(\d+)\s*[|]?\s+(\d+(?:[.,]\d+)?)\s+[|]?\s*([\d ,.]+)\s*€", normalized, re.I)
+            if not match or parse_number(match[1]) != result.value:
+                continue
+            count, points = parse_number(match[1]), parse_number(match[2])
+            # Only use an explicit nearby tariff, never a hardcoded ACI rate.
+            start = content.find(line)
+            context = normalize(content[max(0, start - 1800):start])
+            rates = re.findall(r"(\d+)\s*points\s*/\s*protocole", context)
+            if not rates:
+                continue
+            rate = float(rates[-1])
+            if rate <= 0:
+                continue
+            ok = abs(count * rate - points) < 0.01
+            _record(checks, results, f"points_{key}", ok,
+                    f"Protocoles : {count:g} × {rate:g} points = {count * rate:g}, "
+                    f"mais la ligne indique {points:g} points. Vérifie la cellule dans le PDF."
+                    if not ok else "Nombre de protocoles cohérent avec les points de la ligne.", [key])
+            break
+
+
+def validate(results, evidence=()):
     checks = []
     check_value_ranges(results, checks)
     check_rate_coherence(results, checks, "c2s")
@@ -166,4 +199,5 @@ def validate(results):
     check_professionals(results, checks, "vacataires")
     check_protocols(results, checks)
     check_ipa_assertion(results, checks)
+    check_protocol_points(results, checks, evidence)
     return checks
